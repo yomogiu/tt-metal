@@ -1,0 +1,29 @@
+name: Generate SBOM
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  generate-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Run SBOM generator
+        run: |
+          python scripts/generate_sbom.py
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: SBOM
+          path: sbom.json
