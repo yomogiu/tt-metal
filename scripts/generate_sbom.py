@@ -130,7 +130,7 @@ def parse_dependencies_cmakelists(content):
 
     return components
 
-def generate_sbom(install_data, cmake_data, versions):
+def generate_sbom(install_data, cmake_data, deps_data, versions):
     sbom = {
         "bomFormat": "CycloneDX",
         "specVersion": "1.4",
