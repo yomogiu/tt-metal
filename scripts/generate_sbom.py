@@ -73,6 +73,63 @@ def parse_cmakelists(content):
     
     return components
 
+def parse_dependencies_cmakelists(content):
+    components = []
+    cpm_pattern = re.compile(
+        r'CPMAddPackage\(\s*'
+        r'NAME\s+(\w+).*?'
+        r'(?:GITHUB_REPOSITORY\s+([/\w-]+)|URL\s+"([^"]+)".*?URL_HASH\s+SHA256=(\w+))?.*?'
+        r'(?:GIT_TAG\s+([^\s)]+))?.*?'
+        r'(?:VERSION\s+([\d.]+))?',
+        re.DOTALL
+    )
+    
+    boost_pattern = re.compile(
+        r'CPMAddPackage\(\s*NAME Boost.*?VERSION ([\d.]+).*?'
+        r'boost-([\d.]+)-cmake\.tar\.xz.*?SHA256=(\w+)',
+        re.DOTALL
+    )
+
+    # Parse Boost separately due to different structure
+    boost_match = boost_pattern.search(content)
+    if boost_match:
+        components.append({
+            "name": "Boost",
+            "version": boost_match.group(1),
+            "source": "CPM",
+            "url": f"https://github.com/boostorg/boost/releases/download/boost-{boost_match.group(2)}/",
+            "hash": f"SHA256:{boost_match.group(3)}"
+        })
+
+    # Parse other CPM packages
+    for match in cpm_pattern.finditer(content):
+        name = match.group(1)
+        github_repo = match.group(2)
+        url = match.group(3)
+        version = match.group(6) or match.group(5)  # Prefer VERSION, fallback to GIT_TAG
+        source = "GitHub" if github_repo else "URL" if url else "Unknown"
+
+        if name == "Boost":  # Already handled
+            continue
+
+        component = {
+            "name": name,
+            "version": version.lstrip('v') if version else "unknown",
+            "source": f"CPM ({source})",
+            "type": "library"
+        }
+
+        if github_repo:
+            component["purl"] = f"pkg:github/{github_repo}@{version}"
+        elif url:
+            component["url"] = url
+            if match.group(4):  # SHA256 hash
+                component["hash"] = f"SHA256:{match.group(4)}"
+
+        components.append(component)
+
+    return components
+
 def generate_sbom(install_data, cmake_data, versions):
     sbom = {
         "bomFormat": "CycloneDX",
@@ -143,6 +200,19 @@ def generate_sbom(install_data, cmake_data, versions):
             "purl": f"pkg:apt/ubuntu/gcc-{install_data['gcc']['version']}",
             "source": "install_dependencies.sh"
         })
+
+    # Add CPM dependencies
+    for dep in deps_data:
+        entry = {
+            "name": dep["name"],
+            "version": dep.get("version", "unknown"),
+            "type": "library",
+            "source": dep["source"],
+            "purl": dep.get("purl", "")
+        }
+        if "hash" in dep:
+            entry["hashes"] = [{"alg": "SHA256", "content": dep["hash"].split(':')[1]}]
+        sbom["components"].append(entry)
     
     return sbom
 
@@ -152,11 +222,16 @@ if __name__ == "__main__":
     
     with open('install_dependencies.sh') as f:
         install_content = f.read()
+
+    with open('dependencies/CMakeLists.txt') as f:
+        deps_content = f.read()
+
+    deps_data = parse_dependencies_cmakelists(deps_content)
     
     install_data, versions = parse_install_script(install_content)
     cmake_data = parse_cmakelists(cmake_content)
     
-    sbom = generate_sbom(install_data, cmake_data, versions)
+    sbom = generate_sbom(install_data, cmake_data, deps_data, versions)
     
     with open('sbom.json', 'w') as f:
         json.dump(sbom, f, indent=2)
