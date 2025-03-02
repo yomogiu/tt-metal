@@ -3,7 +3,7 @@ import json
 import re
 import os
 import base64
-from datetime import datetime
+from datetime import datetime, UTC
 from collections import defaultdict
 from urllib.parse import urlparse
 
@@ -74,12 +74,13 @@ def parse_install_script(content):
     return components, version_vars
 
 def parse_cmakelists(content, file_path):
+    spdx = parse_spdx_headers(content)
     components = {
         'subdirectories': [],
         'find_packages': [],
         'link_libraries': [],
         'external_deps': [],
-        'spdx': parse_spdx_headers(content)
+        'spdx': spdx
     }
     
     # Find subdirectories with SYSTEM modifier
@@ -88,7 +89,8 @@ def parse_cmakelists(content, file_path):
         components['subdirectories'].append({
             'path': match.group(1),
             'system': bool(match.group(2)),
-            'file': file_path
+            'file': file_path,
+            'spdx': spdx  # Add SPDX context from parent CMakeLists
         })
     
     # Find package dependencies
@@ -177,7 +179,7 @@ def generate_sbom(install_data, cmake_data, deps_data, versions, project_spdx):
         "specVersion": "1.4",
         "version": 1,
         "metadata": {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(UTC).isoformat(),
             "component": {
                 "name": "Metalium",
                 "version": versions.get("VERSION_NUMERIC", "unknown"),
@@ -212,11 +214,11 @@ def generate_sbom(install_data, cmake_data, deps_data, versions, project_spdx):
         if key not in seen_components:
             seen_components.add(key)
             
-            # Merge SPDX data
+            # Merge SPDX data safely
             if 'spdx' in component:
-                component.setdefault('copyright', "\n".join(component['spdx']['copyrights']))
+                component.setdefault('copyright', "\n".join(component['spdx'].get('copyrights', [])))
                 licenses = component.get('licenses', [])
-                for lic in component['spdx']['licenses']:
+                for lic in component['spdx'].get('licenses', []):
                     licenses.append({"license": {"id": lic}})
                 component['licenses'] = licenses
                 del component['spdx']
