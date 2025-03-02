@@ -331,7 +331,7 @@ if __name__ == "__main__":
     sbom = generate_sbom(install_data, cmake_data, deps_data, versions, project_spdx)
     
     # Write output
-    with open('sbom.cdx.json', 'w') as f:
+    with open('sbom.json', 'w') as f:
         json.dump(sbom, f, indent=2, sort_keys=True)
     
     print("Generated compliant SBOM at sbom.cdx.json")
